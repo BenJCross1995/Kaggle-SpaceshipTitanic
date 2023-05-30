@@ -5,6 +5,7 @@
 
 #----LOAD LIBRARIES----# ####
 suppressPackageStartupMessages({
+  library(tibble)     # Row names
   library(dplyr)
   library(ggplot2)
   library(tidyr)
@@ -64,8 +65,38 @@ test$DataType <- rep("test", nrow(test))
 
 eda_data <- rbind(train, test)
 
-eda_data %>%
-  group_by(DataType, CryoSleep) %>%
+# Now we want to see what percentage of missing values are in each columns.
+missing.data <- function(dataset){
+  missing <- data.frame( missing.percent = colMeans(is.na(dataset))*100 ) %>%
+    filter( missing.percent > 0 )
+  missing <- rownames_to_column(missing, "Variable") %>%
+    arrange(Variable)
+  return(missing)
+}
+
+missing.data(eda_data)
+
+# Examine the relationship between the Cryosleep variable, the shopping totals and 
+# the missing Cryosleep data
+cryo_vs_spend <- eda_data %>%
+  group_by(CryoSleep) %>%
   summarise(across(.cols = c(RoomService, FoodCourt, ShoppingMall, Spa, VRDeck),
                    .fns = ~mean(.x, na.rm = TRUE)))
+
+# We can see here that All Cryosleep data which has a value of TRUE complete no purchases,
+# which is to be expected. So, first thing to do is replace any NA values in the shopping
+# categories to 0 when CryoSleep = TRUE. Then if the total value spent is > 0 (not including,
+# missing values), we will set any missing CryoSleep values to FALSE as the person has spent money.
+# If the total spent = 0 (not including missing values) then we know the CryoSleep = TRUE
+
+eda_data <- eda_data %>%
+  mutate(across(.cols = c(RoomService, FoodCourt, ShoppingMall, Spa, VRDeck),
+                .fns = ~ifelse(is.na(.x) & CryoSleep == TRUE, 0, .x)),
+         CryoSleep = ifelse(is.na(CryoSleep) & select(., RoomService:VRDeck) %>% rowSums(na.rm = TRUE) == 0,
+                            TRUE, CryoSleep),
+         CryoSleep = ifelse(is.na(CryoSleep) & select(., RoomService:VRDeck) %>% rowSums(na.rm = TRUE) > 0,
+                            FALSE, CryoSleep))
+
+# However now we cannot address the NA values for the spend columns using just the Cryosleep as there
+# could be other influences on the column. We need to investigate more.
 
