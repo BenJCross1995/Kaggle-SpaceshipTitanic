@@ -100,3 +100,29 @@ eda_data <- eda_data %>%
 # However now we cannot address the NA values for the spend columns using just the Cryosleep as there
 # could be other influences on the column. We need to investigate more.
 
+missing.data(eda_data)
+
+# Now want to check the percentage split between the target values in the training set
+ggplot(eda_data %>% filter(DataType == "train"),
+       aes(x = Transported)) +
+  geom_bar(aes(y = after_stat(count)/sum(after_stat(count))))
+# Can see they're basically equal
+
+# Steps from book; 1. Distinguish features, 2. Univariate Analysis, 3. Bivariate and Multivariate Analysis
+# 4. Detect Aberrant and Missing Values, 5. Detect Outlier, 6. Feature Engineering
+
+# Univariate Analysis
+# Firstly want to deal with the character variables, for this i will again use bar/histograms
+str(eda_data)
+
+# I'll view CryoSleep and VIP First
+ggplot(eda_data,
+       aes(x = CryoSleep)) +
+  geom_bar(aes(y = after_stat(count)/sum(after_stat(count))))
+
+ggplot(eda_data,
+       aes(x = VIP)) +
+  geom_bar(aes(y = after_stat(count)/sum(after_stat(count))))
+
+ggplot(eda_data, aes(x = Transported, y = FoodCourt)) +
+  geom_boxplot()
