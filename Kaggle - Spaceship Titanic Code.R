@@ -21,7 +21,6 @@ source_url("https://raw.github.com/BenJCross1995/UsefulFunctions/main/one_hot_ec
 # Missing Data Function
 source_url("https://raw.github.com/BenJCross1995/UsefulFunctions/main/missingData.R")
 
-
 #----LOAD DATA----# ####
 train <- read.csv("Data/train.csv")
 test <- read.csv("Data/test.csv")
@@ -137,5 +136,40 @@ ggplot(eda_data,
 
 #----COMPLETE ONE-HOT ENCODING----# ####
 vars_to_onehot <- c("HomePlanet", "CryoSleep", "Deck", "Side", "Destination", "VIP") 
-final_data <- one_hot_encoding(eda_data, vars_to_onehot)
+encoded_data <- one_hot_encoding(eda_data, vars_to_onehot)
+
+#----CANNOT GET RID OF MISSING VALUES!!!!----#
+train_df <- encoded_data %>%
+  filter(DataType == 'train') %>%
+  select(Transported, PassengerId, Age:VRDeck, HomePlanet:VIPTRUE)%>%
+  mutate(Transported = as.factor(Transported))
+
+train_df <- na.omit(train_df)
+test_df <- encoded_data %>%
+  filter(DataType == 'test') %>%
+  select(Transported, PassengerId, Age:VRDeck, HomePlanet:VIPTRUE)%>%
+  mutate(Transported = as.factor(Transported))
+test_df <- na.omit(test_df)
+
+#----LOGISTIC----# ####
+default_logistic <- train(
+  form = Transported ~ .,
+  data = train_df %>% select(-PassengerId),
+  trControl = trainControl(method = "cv", number = 5),
+  method = "glm",
+  family = "binomial"
+)
+
+
+default_logistic_pred <- predict(default_logistic,
+                                 newdata = test_df %>% select(-PassengerId))
+length(default_logistic_pred)
+
+submission_1 <- cbind(test_df$PassengerId, default_logistic_pred) 
+
+write.csv(submission_1, "submission_1.csv")
+
+#----RF----# ####
+
+rf_train <- caret::train(Transported ~., data = train_df, method = 'rf')
 
