@@ -5,12 +5,21 @@
 
 #----LOAD LIBRARIES----# ####
 suppressPackageStartupMessages({
+  library(devtools)
   library(tibble)     # Row names
   library(dplyr)
   library(ggplot2)
   library(tidyr)
   library(stringr)  # String manipulation
 })
+
+#----FUNCTIONS USED FROM GITHUB----#
+
+# One-Hot Encoding function
+source_url("https://raw.github.com/BenJCross1995/UsefulFunctions/main/one_hot_ecoding.R")
+
+# Missing Data Function
+source_url("https://raw.github.com/BenJCross1995/UsefulFunctions/main/missingData.R")
 
 
 #----LOAD DATA----# ####
@@ -20,11 +29,17 @@ test <- read.csv("Data/test.csv")
 # Add a transported column to test data just all true values for transformations
 test$Transported = rep(TRUE, nrow(test))
 
+#----VIEW DATA----# ####
+
+head(train)
+
 # Check out data structure
 str(train)
 
 # Check out column types
 glimpse(train)
+
+#----INITIAL TRANSFORMATIONS----# ####
 
 # Initial data transformations
 Initial_Data_Transforamtion <- function(data){
@@ -63,16 +78,11 @@ test <- Initial_Data_Transforamtion(test)
 train$DataType <-  rep("train", nrow(train))
 test$DataType <- rep("test", nrow(test))
 
+#----EDA----# ####
+
 eda_data <- rbind(train, test)
 
 # Now we want to see what percentage of missing values are in each columns.
-missing.data <- function(dataset){
-  missing <- data.frame( missing.percent = colMeans(is.na(dataset))*100 ) %>%
-    filter( missing.percent > 0 )
-  missing <- rownames_to_column(missing, "Variable") %>%
-    arrange(Variable)
-  return(missing)
-}
 
 missing.data(eda_data)
 
@@ -95,7 +105,8 @@ eda_data <- eda_data %>%
          CryoSleep = ifelse(is.na(CryoSleep) & select(., RoomService:VRDeck) %>% rowSums(na.rm = TRUE) == 0,
                             TRUE, CryoSleep),
          CryoSleep = ifelse(is.na(CryoSleep) & select(., RoomService:VRDeck) %>% rowSums(na.rm = TRUE) > 0,
-                            FALSE, CryoSleep))
+                            FALSE, CryoSleep),
+         TotalSpend = select(., RoomService:VRDeck) %>% rowSums(na.rm = TRUE))
 
 # However now we cannot address the NA values for the spend columns using just the Cryosleep as there
 # could be other influences on the column. We need to investigate more.
@@ -124,5 +135,7 @@ ggplot(eda_data,
        aes(x = VIP)) +
   geom_bar(aes(y = after_stat(count)/sum(after_stat(count))))
 
-ggplot(eda_data, aes(x = Transported, y = FoodCourt)) +
-  geom_boxplot()
+#----COMPLETE ONE-HOT ENCODING----# ####
+vars_to_onehot <- c("HomePlanet", "CryoSleep", "Deck", "Side", "Destination", "VIP") 
+final_data <- one_hot_encoding(eda_data, vars_to_onehot)
+
