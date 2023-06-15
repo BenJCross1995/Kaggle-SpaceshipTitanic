@@ -5,6 +5,7 @@
 
 #----LOAD LIBRARIES----# ####
 suppressPackageStartupMessages({
+  library(caret)      # ML/KNN IMPUTATION
   library(devtools)
   library(tibble)     # Row names
   library(dplyr)
@@ -59,7 +60,9 @@ Initial_Data_Transforamtion <- function(data){
            PassengerGroup = str_extract(PassengerId, "^[^_]+"),
            Surname = str_extract(Name, "(?<=\\s)[^\\s]+$")) %>%
     separate(Cabin, into = c("Deck", "Num", "Side"), sep = "/", remove = FALSE) %>%
-    mutate(DeckNum = ifelse(is.na(Num), NA, paste0(Deck, "-", Num))) %>%
+    mutate(DeckNum = ifelse(is.na(Num), NA, paste0(Deck, "-", Num)),
+           across(where(is.character),
+                  function(x) {ifelse(x == "", NA, x)})) %>%
     relocate(Transported) %>%
     relocate(PassengerGroup, .after = 'PassengerId') %>%
     relocate(DeckNum, .after = 'Cabin') %>%
@@ -105,12 +108,105 @@ eda_data <- eda_data %>%
                             TRUE, CryoSleep),
          CryoSleep = ifelse(is.na(CryoSleep) & select(., RoomService:VRDeck) %>% rowSums(na.rm = TRUE) > 0,
                             FALSE, CryoSleep),
-         TotalSpend = select(., RoomService:VRDeck) %>% rowSums(na.rm = TRUE))
+         TotalSpend = select(., RoomService:VRDeck) %>% rowSums(na.rm = TRUE),
+         VIP = ifelse(CryoSleep == TRUE & is.na(VIP), 0,
+                      ifelse(CryoSleep == FALSE & is.na(VIP), 1, VIP)))
 
 # However now we cannot address the NA values for the spend columns using just the Cryosleep as there
 # could be other influences on the column. We need to investigate more.
 
 missing.data(eda_data)
+
+# Lets deal with HomePlanet and Destination. Family members revealed none from same family had missing.
+home_planet_by_surname <- eda_data %>%
+  group_by(Surname, HomePlanet) %>%
+  summarise(TotalHome = n()) %>%
+  filter(is.na(HomePlanet) == FALSE) %>%
+  filter(is.na(Surname) == FALSE) %>%
+  select(-TotalHome) %>%
+  rename('home_planet' = 'HomePlanet')
+
+eda_data <- eda_data %>%
+  left_join(home_planet_by_surname, by = 'Surname') %>%
+  mutate(HomePlanet = ifelse(is.na(HomePlanet),
+                             home_planet, HomePlanet)) %>%
+  select(-home_planet)
+
+# Code to get the missing for the name
+# eda_data %>%
+#   group_by(Surname) %>%
+#   summarise(TotalMembers = n()) %>%
+#   left_join(eda_data %>%
+#               group_by(Surname, HomePlanet) %>%
+#               summarise(TotalHome = n()),
+#             by = 'Surname') %>%
+#   group_by(Surname) %>%
+#   summarise(TotalMembers = max(TotalMembers),
+#             Europa = sum(TotalHome[HomePlanet == 'Europa'], na.rm = TRUE),
+#             Mars = sum(TotalHome[HomePlanet == 'Mars'], na.rm = TRUE),
+#             Earth = sum(TotalHome[HomePlanet == 'Earth'], na.rm = TRUE),
+#             TotalMissing = sum(TotalHome[is.na(HomePlanet)])) %>%
+#   filter(TotalMissing >0 ) %>%
+#   arrange(desc(TotalMissing))
+
+
+
+ggplot(eda_data, aes(x = Destination, fill = HomePlanet)) +
+  geom_bar(stat = 'count')
+
+# Check home vs destinaition
+home_planets <- table(eda_data$HomePlanet, eda_data$Destination, useNA = 'always')
+home_planets <- 100 * home_planets / rowSums(home_planets)
+
+# From this, missing with destination PSO J318.5-22 will be from Earth. Missing with destination
+# TRAPPIST-1e will be from Mars and missing with destination 55 Cancri e will be from Europa
+
+# Now just check home and destination counts as bars. Colour become obvious.
+ggplot(eda_data, aes(x = HomePlanet)) +
+  geom_bar()
+
+ggplot(eda_data, aes(x = Destination)) +
+  geom_bar()
+
+# Now we want to update the HomePlanet and Destination
+eda_data <- eda_data %>%
+  mutate(HomePlanet = case_when(is.na(HomePlanet) & Destination == "PSO J318.5-22" ~ "Earth",
+                                is.na(HomePlanet) & Destination == "TRAPPIST-1e" ~ "Mars",
+                                is.na(HomePlanet) & Destination == "55 Cancri e" ~ "Europa",
+                                is.na(HomePlanet) & is.na(Destination) ~ "Earth",
+                                .default = HomePlanet),
+         Destination = case_when(is.na(Destination) & HomePlanet == "Earth" ~ "TRAPPIST-1e",
+                                 is.na(Destination) & HomePlanet == "Mars" ~ "TRAPPIST-1e",
+                                 is.na(Destination) & HomePlanet == "Europa" ~ "55 Cancri e",
+                                 is.na(Destination) & is.na(HomePlanet) ~ "TRAPPIST-1e",
+                                 .default = Destination))
+
+# Recheck
+missing.data(eda_data)
+
+
+
+#----KNN MISSING VALUES IMPUTATION----# ####
+sqrt(ncol(eda_data))
+preProcValues <- preProcess(eda_data,
+                            method = c("knnImpute"),
+                            k = 5,
+                            knnSummary = mean)
+
+impute_space_info <- predict(preProcValues, eda_data, na.action = na.pass)
+
+procNames <- data.frame(col = names(preProcValues$mean), mean = preProcValues$mean,
+                        sd = preProcValues$std)
+
+
+for(i in procNames$col){
+  impute_space_info[i] <- impute_space_info[i] * preProcValues$std[i] + preProcValues$mean[i]
+} 
+
+impute_space_info
+ 
+missing.data(impute_space_info)   
+#----MORE EDA----# ####
 
 # Now want to check the percentage split between the target values in the training set
 ggplot(eda_data %>% filter(DataType == "train"),
